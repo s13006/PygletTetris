@@ -1,280 +1,154 @@
-import random, time, pyglet, sys
+import pyglet
+import random
 
-FPS = 25
-WINDOW_WIDTH = 640
-WINDOW_HEIGHT = 480
-BOX_SIZE = 20
+window = pyglet.window.Window(320, 640)
+BACKGROUND = pyglet.resource.image('fonas.png')
+block = pyglet.resource.image('plyta.png')
+
+BLOCK_HEIGHT = 32
+BLOCK_WIDTH = 32
+
+TETROMINOS = [
+        [(0, 1), (1, 1), (1, 0), (2, 0)], #Z
+        [(0, 0), (1, 0), (1, 1), (2, 1)], #S
+        [(0, 0), (1, 0), (2, 0), (1, 1)], #T
+        [(0, 1), (0, 0), (1, 0), (2, 0)], #J
+        [(0, 0), (1, 0), (2, 0), (2, 1)], #L
+        [(0, 0), (1, 0), (0, 1), (1, 1)], #O
+        [(0, 0), (1, 0), (2, 0), (3, 0)]  #I
+]
+
+#XY
 BOARD_WIDTH = 10
 BOARD_HEIGHT = 20
-BLANK = '.'
+SULINYS = [[0] * BOARD_WIDTH for _ in range(BOARD_HEIGHT)]
 
-window = pyglet.window.Window(width=WINDOW_WIDTH, height=WINDOW_HEIGHT)
+SCORE = 0
 
-piece_sprite = []
+#座標
+HEAVEN = (4, 18)
 
-MOVES_IDE_WAYS_FREQ = 0.15
-MOVE_DOWN_FREQ = 0.1
+current_block = 0
+unit_location = (0, 0)
+block_angle = 0
 
-X_MARGIN = int((WINDOW_WIDTH - BOARD_WIDTH * BOX_SIZE) / 2)
-TOP_MARGIN = WINDOW_HEIGHT - (BOARD_HEIGHT * BOX_SIZE) - 5
+def new_block():
+        global current_block, unit_location, block_angle
+        current_block = random.randint(0, 6)
+        unit_location = HEAVEN
+        block_angle = 0
 
-#               R    G    B
-WHITE       = (255, 255, 255)
-GRAY        = (185, 185, 185)
-BLACK       = (  0,   0,   0)
-RED         = (155,   0,   0)
-LIGHTRED    = (175,  20,  20)
-GREEN       = (  0, 155,   0)
-LIGHTGREEN  = ( 20, 175,  20)
-BLUE        = (  0,   0, 155)
-LIGHTBLUE   = ( 20,  20, 175)
-YELLOW      = (155, 155,   0)
-LIGHTYELLOW = (175, 175,  20)
+def game_over():
+    global SULINYS, SCORE
+    SULINYS = [[0] * BOARD_WIDTH for _ in range(BOARD_HEIGHT)]
+    SCORE = 0
 
-BORDER_COLOR = BLUE
-BG_COLOR = BLACK
-TEXT_COLOR = WHITE
-TEXT_SHADOW_COLOR = GRAY
-COLORS      = (     BLUE,      GREEN,      RED,      YELLOW)
-LIGHT_COLORS = (LIGHTBLUE, LIGHTGREEN, LIGHTRED, LIGHTYELLOW)
-assert len(COLORS) == len(LIGHT_COLORS) # each color must have light color
+def draw_block(blocks):
+    for p in blocks:
+            block.blit(BLOCK_WIDTH * p[0], BLOCK_HEIGHT * p[1])
 
-TEMPLATE_WIDTH = 5
-TEMPLATE_HEIGHT = 5
+def pies_sulina(sulinys):
+    for y, prompt in enumerate(sulinys):
+        for x, w in enumerate(prompt):
+            if w == 1:
+                block.blit(x * BLOCK_WIDTH, y * BLOCK_HEIGHT)
 
-S_SHAPE_TEMPLATE = [['.....',
-                     '.....',
-                     '..OO.',
-                     '.OO..',
-                     '.....'],
-                    ['.....',
-                     '..O..',
-                     '..OO.',
-                     '...O.',
-                     '.....']]
+def rotate_block(block, angle):
+    if angle % 4 == 0:
+        return block
+    return rotate_block([(1-y, x) for (x, y) in block], angle - 1)
 
-Z_SHAPE_TEMPLATE = [['.....',
-                     '.....',
-                     '.OO..',
-                     '..OO.',
-                     '.....'],
-                    ['.....',
-                     '..O..',
-                     '.OO..',
-                     '.O...',
-                     '.....']]
+def creep_block(block, poslinkis):
+    return [(x + poslinkis[0], y + poslinkis[1]) for (x, y) in block]
 
-I_SHAPE_TEMPLATE = [['..O..',
-                     '..O..',
-                     '..O..',
-                     '..O..',
-                     '.....'],
-                    ['.....',
-                     '.....',
-                     'OOOO.',
-                     '.....',
-                     '.....']]
+def block_move(block, angle, poslinkis):
+    return creep_block(rotate_block(block, angle), poslinkis)
 
-O_SHAPE_TEMPLATE = [['.....',
-                     '.....',
-                     '.OO..',
-                     '.OO..',
-                     '.....']]
+def with_space(sulinys, block):
+    for p in block:
+        if p[1] >= BOARD_HEIGHT:
+            continue
+        if p[1] < 0 or p[0] < 0 or p[0] >= BOARD_WIDTH:
+            return False
+        if sulinys[p[1]][p[0]] == 1:
+            return False
+    return True
 
-J_SHAPE_TEMPLATE = [['.....',
-                     '.O...',
-                     '.OOO.',
-                     '.....',
-                     '.....'],
-                    ['.....',
-                     '..OO.',
-                     '..O..',
-                     '..O..',
-                     '.....'],
-                    ['.....',
-                     '.....',
-                     '.OOO.',
-                     '...O.',
-                     '.....'],
-                    ['.....',
-                     '..O..',
-                     '..O..',
-                     '.OO..',
-                     '.....']]
+def imprinted(sulinys, block):
+        for p in block:
+                sulinys[p[1]][p[0]] = 1
 
-L_SHAPE_TEMPLATE = [['.....',
-                     '...O.',
-                     '.OOO.',
-                     '.....',
-                     '.....'],
-                    ['.....',
-                     '..O..',
-                     '..O..',
-                     '..OO.',
-                     '.....'],
-                    ['.....',
-                     '.....',
-                     '.OOO.',
-                     '.O...',
-                     '.....'],
-                    ['.....',
-                     '.OO..',
-                     '..O..',
-                     '..O..',
-                     '.....']]
+def delete_lines():
+        global SULINYS, SCORE
+        i = 0
+        while i < len(SULINYS):
+                if SULINYS[i] == [1] * BOARD_WIDTH:
+                        SULINYS = SULINYS[:i] + SULINYS[i+1:] + [[0] * BOARD_WIDTH]
+                        SCORE += 1
+                        print(SCORE)
+                else:
+                        i += 1
 
-T_SHAPE_TEMPLATE = [['.....',
-                     '..O..',
-                     '.OOO.',
-                     '.....',
-                     '.....'],
-                    ['.....',
-                     '..O..',
-                     '..OO.',
-                     '..O..',
-                     '.....'],
-                    ['.....',
-                     '.....',
-                     '.OOO.',
-                     '..O..',
-                     '.....'],
-                    ['.....',
-                     '..O..',
-                     '.OO..',
-                     '..O..',
-                     '.....']]
+def kristi(dt):
+        global unit_location
+        new_place = (unit_location[0], unit_location[1] - 1)
+        if with_space(SULINYS, block_move(
+                TETROMINOS[current_block], block_angle, new_place)):
+                        unit_location = new_place
+        else:
+                imprinted(SULINYS, block_move(
+                        TETROMINOS[current_block], block_angle, unit_location))
+                if unit_location[1] >= 18:
+                    game_over()
+                delete_lines()
+                print(unit_location)
+                new_block()
 
-PIECES = {'S': S_SHAPE_TEMPLATE,
-          'Z': Z_SHAPE_TEMPLATE,
-          'J': J_SHAPE_TEMPLATE,
-          'L': L_SHAPE_TEMPLATE,
-          'I': I_SHAPE_TEMPLATE,
-          'O': O_SHAPE_TEMPLATE,
-          'T': T_SHAPE_TEMPLATE}
-
-def main():
-    global FPSCLOCK, BASICFONT, BIGFONT
-    FPSCLOCK = pyglet.clock
-
-    while True: # game loop
-        runGame()
-
-
-def runGame():
-    # setup variables for the start of the game
-    board = getBlankBoard()
-    lastMoveDownTime = time.time()
-    lastMoveSidewaysTime = time.time()
-    lastFallTime = time.time()
-    movingDown = False # note: there is no movingUp variable
-    movingLeft = False
-    movingRight = False
-    score = 0
-    level, fallFreq = calculateLevelAndFallFreq(score)
-
-    fallingPiece = getNewPiece()
-    nextPiece = getNewPiece()
-
-def calculateLevelAndFallFreq(score):
-    # Based on the score, return the level the player is on and
-    # how many seconds pass until a falling piece falls one space.
-    level = int(score / 10) + 1
-    fallFreq = 0.27 - (level * 0.02)
-    return level, fallFreq
-
-def convertToPixelCoords(boxx, boxy):
-    # Convert the given xy coordinates of the board to xy
-    # coordinates of the location on the screen.
-    return (X_MARGIN + (boxx * BOX_SIZE)), (TOP_MARGIN + (boxy * BOX_SIZE))
-
-def getNewPiece():
-    # return a random new piece in a random rotation and color
-    shape = random.choice(list(PIECES.keys()))
-    newPiece = {'shape': shape,
-                'rotation': random.randint(0, len(PIECES[shape]) - 1),
-                'x': int(BOARD_WIDTH / 2) - int(TEMPLATE_WIDTH / 2),
-                'y': -2, # start it above the board (i.e. less than 0)
-                'color': random.randint(0, len(COLORS)-1)}
-    return newPiece
-
-def drawPiece(piece, pixelx=None, pixely=None):
-    shapeToDraw = PIECES[piece['shape']][piece['rotation']]
-    if pixelx == None and pixely == None:
-        # if pixelx & pixely hasn't been specified, use the location stored in the piece data structure
-        pixelx, pixely = convertToPixelCoords(piece['x'], piece['y'])
-
-    # draw each of the boxes that make up the piece
-    for x in range(TEMPLATE_WIDTH):
-        for y in range(TEMPLATE_HEIGHT):
-            if shapeToDraw[y][x] != BLANK:
-                drawBox(None, None, piece['color'], pixelx + (x * BOX_SIZE), pixely + (y * BOX_SIZE))
-
-def drawBox(boxx, boxy, color, pixelx=None, pixely=None):
-    # draw a single box (each tetromino piece has four boxes)
-    # at xy coordinates on the board. Or, if pixelx & pixely
-    # are specified, draw to the pixel coordinates stored in
-    # pixelx & pixely (this is used for the "Next" piece).
-    if color == BLANK:
-        return
-    if pixelx == None and pixely == None:
-        pixelx, pixely = convertToPixelCoords(boxx, boxy)
-    #新しいテトリミノを表示?
-    # pygame.draw.rect(window, COLORS[color], (pixelx + 1, pixely + 1, BOX_SIZE - 1, BOX_SIZE - 1))
-    # pygame.draw.rect(window, LIGHT_COLORS[color], (pixelx + 1, pixely + 1, BOX_SIZE - 4, BOX_SIZE - 4))
-
-def getBlankBoard():
-    # create and return a new blank board data structure
-    board = []
-    for i in range(BOARD_WIDTH):
-        board.append([BLANK] * BOARD_HEIGHT)
-    return board
-
-def drawNextPiece(piece):
-    # draw the "next" text
-    nextSurf = BASICFONT.render('Next:', True, TEXT_COLOR)
-    nextRect = nextSurf.get_rect()
-    nextRect.topleft = (WINDOW_WIDTH - 120, 80)
-    window.blit(nextSurf, nextRect)
-    # draw the "next" piece
-    drawPiece(piece, pixelx=WINDOW_WIDTH-120, pixely=100)
+pyglet.clock.schedule_interval(kristi, 1.0)
 
 @window.event
 def on_draw():
-    window.clear()
+        window.clear()
+        BACKGROUND.blit(0, 0)
+        draw_block(block_move(TETROMINOS[current_block],
+                block_angle, unit_location))
+        pies_sulina(SULINYS)
+        score_label = pyglet.text.Label(
+            text="Score : " + str(SCORE),
+            x = 10, y = 10,
+            color = (0, 0, 0, 255)
+            ,font_size = 20)
+        score_label.draw()
 
 @window.event
-def on_key_press(symbol, modifiers):
-    from pyglet.window import key
+def on_key_press(simbolis, _):
+        global unit_location, block_angle
+        from pyglet.window import key
+        new_place = unit_location
+        new_angle = block_angle
+        if simbolis == key.LEFT:
+                new_place = (unit_location[0] - 1, unit_location[1])
+        if simbolis == key.RIGHT:
+                new_place = (unit_location[0] + 1, unit_location[1])
+        if simbolis == key.SPACE:
+                new_angle += 1
+        if simbolis == key.DOWN:
+                new_place = (unit_location[0], unit_location[1] - 1)
+                if with_space(SULINYS, block_move(
+                        TETROMINOS[current_block], block_angle, new_place)):
+                        unit_location = new_place
+                        new_place = (unit_location[0], unit_location[1])
+        if simbolis == key.UP:
+                while with_space(SULINYS, block_move(TETROMINOS[current_block], block_angle, new_place)):
+                        unit_location = new_place
+                        new_place = (unit_location[0], unit_location[1] - 1)
 
-    if symbol == key.LEFT:
-        drawNextPiece(getNewPiece())
-    elif symbol == key.RIGHT:
-        pass
-    elif symbol == key.UP:
-        pass
-    elif symbol == key.DOWN:
-        pass
-    elif symbol == key.SPACE:
-        pass
+        if with_space(SULINYS, block_move(
+                TETROMINOS[current_block], new_angle, new_place)):
+                unit_location = new_place
+                block_angle = new_angle
 
-@window.event
-def on_key_release(symbol, modifiers):
-    from pyglet.window import key
-
-    if symbol == key.LEFT:
-        pass
-    elif symbol == key.RIGHT:
-        pass
-    elif symbol == key.UP:
-        pass
-    elif symbol == key.DOWN:
-        pass
-    elif symbol == key.SPACE:
-        pass
-
-def update(dt):
-    pass
 
 if __name__ == '__main__':
-
-    pyglet.app.run()
+    new_block()
+pyglet.app.run()
